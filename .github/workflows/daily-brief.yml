@@ -16,8 +16,6 @@ on:
 
 permissions:
   contents: write   # site/ (전체 목록 페이지) 커밋용
-  pages: write      # GitHub Pages 배포 (전체 목록 페이지)
-  id-token: write
 
 concurrency:
   group: daily-security-brief
@@ -27,8 +25,6 @@ jobs:
   brief:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: github-pages
     steps:
       - uses: actions/checkout@v5
 
@@ -84,6 +80,29 @@ jobs:
         with:
           path: site
 
+  # 배포는 별도 작업 — 실패해도 'Re-run failed jobs' 로 배포만 다시 할 수 있음 (카톡 재발송 없음)
+  deploy:
+    needs: brief
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.retry.outputs.page_url || steps.first.outputs.page_url }}
+    steps:
       - name: Deploy page
-        if: success() && !inputs.dry_run
+        id: first
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait before retry
+        if: steps.first.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy page (retry)
+        id: retry
+        if: steps.first.outcome == 'failure'
         uses: actions/deploy-pages@v4
