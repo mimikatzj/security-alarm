@@ -19,7 +19,7 @@ from bs4 import MarkupResemblesLocatorWarning
 from . import digest
 from .collector import KST, Item, collect
 from .filters import Section, load_sections, select
-from .kakao import KakaoClient, KakaoError, truncate
+from .kakao import TEXT_LIMIT, KakaoClient, truncate
 from .state import SeenStore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,85 +27,49 @@ log = logging.getLogger("alarm")
 warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 
-def digest_url(day_str: str) -> str | None:
-    """GitHub 에서 실행 중이면 다이제스트 파일의 웹 URL."""
-    repo = os.getenv("GITHUB_REPOSITORY")
-    if not repo:
-        return None
-    server = os.getenv("GITHUB_SERVER_URL", "https://github.com")
-    branch = os.getenv("GITHUB_REF_NAME", "main")
-    return f"{server}/{repo}/blob/{branch}/digests/{day_str}.md"
+def page_url(day_str: str | None = None) -> str | None:
+    """GitHub Pages 주소 (https://<owner>.github.io/<repo>/<날짜>.html). GitHub 밖에서는 None.
+    PAGES_URL 환경변수로 직접 지정할 수도 있다 (커스텀 도메인 등)."""
+    base = os.getenv("PAGES_URL")
+    if not base:
+        repo = os.getenv("GITHUB_REPOSITORY")
+        if not repo:
+            return None
+        owner, name = repo.split("/", 1)
+        base = (f"https://{owner.lower()}.github.io" if name.lower() == f"{owner.lower()}.github.io"
+                else f"https://{owner.lower()}.github.io/{name}")
+    base = base.rstrip("/")
+    return f"{base}/{day_str}.html" if day_str else f"{base}/"
 
 
-def _mark(it: Item) -> str:
-    return "❗" if it.priority else ""
-
-
-def build_messages(today, target, sections: list[Section], failed, cfg, full_url):
-    """카톡 메시지 목록. [("text", dict) | ("list", dict)]
-    1) 요약 텍스트  2) 섹션별 리스트(3건씩, 1건이면 텍스트)"""
-    kcfg = cfg.get("kakao", {})
-    max_msgs = kcfg.get("max_messages", 20)
-    fallback_url = full_url or "https://www.boho.or.kr"
-
+def build_message(target, sections: list[Section], failed) -> str:
+    """카톡 1건 본문 (최대 200자): 섹션별 건수 + 남는 자리에 주요 제목."""
+    head = [f"🛡️ 보안 브리핑 · {target.month}/{target.day}({digest.WEEKDAYS[target.weekday()]}) 게시글"]
     total = sum(len(s.items) for s in sections)
-    lines = [f"🛡️ 보안 브리핑 {digest.fmt_day(today)}", f"대상: {digest.fmt_day(target)} 게시글", ""]
     if total == 0:
-        lines.append("새 소식이 없습니다.")
-    for s in sections:
-        if s.items:
+        head.append("새 소식이 없습니다.")
+    else:
+        for s in sections:
             pc = s.priority_count
-            lines.append(f"{s.label} {len(s.items)}건" + (f" (❗{pc})" if pc else ""))
+            head.append(f"{s.label} {len(s.items)}건" + (f" (❗{pc})" if pc else ""))
     if failed:
-        lines += ["", f"⚠️ 수집 실패: {', '.join(failed)}"]
-    msgs = [("text", {"text": "\n".join(lines), "url": fallback_url, "button_title": "전체 목록"})]
+        head.append(f"⚠️ 수집 실패: {', '.join(failed)}")
+    text = "\n".join(head)
 
-    for sec in sections:
-        chunks = [sec.items[i: i + 3] for i in range(0, len(sec.items), 3)]
-        for n, chunk in enumerate(chunks, 1):
-            if len(msgs) >= max_msgs:
-                log.warning("max_messages(%d) 초과 — 나머지는 다이제스트에만 기록", max_msgs)
-                return msgs
-            header = sec.label if len(chunks) == 1 else f"{sec.label} ({n}/{len(chunks)})"
-            if len(chunk) == 1:  # 리스트 템플릿은 최소 2건 필요
-                it = chunk[0]
-                msgs.append(("text", {
-                    "text": f"{header}\n\n{_mark(it)}{it.title}\n- {it.source} · {digest.fmt_pub(it)}",
-                    "url": it.link, "button_title": "원문 보기",
-                }))
-            else:
-                msgs.append(("list", {
-                    "header": header,
-                    "header_url": fallback_url,
-                    "rows": [(f"{_mark(i)}{i.title}",
-                              f"{i.source} · {digest.fmt_pub(i)}", i.link) for i in chunk],
-                    "button": ("전체 목록", full_url) if full_url else None,
-                }))
-    return msgs
-
-
-def send_all(client: KakaoClient, msgs) -> None:
-    for kind, m in msgs:
-        if kind == "text":
-            client.send_text(m["text"], m["url"], m["button_title"])
-            continue
-        try:
-            client.send_list(m["header"], m["header_url"], m["rows"], m["button"])
-        except KakaoError as exc:  # 리스트 템플릿 실패 시 건별 텍스트로 대체
-            log.warning("리스트 전송 실패, 텍스트로 재시도: %s", exc)
-            for title, desc, url in m["rows"]:
-                client.send_text(f"{m['header']}\n\n{title}\n- {desc}", url, "원문 보기")
-
-
-def print_messages(msgs) -> None:
-    for kind, m in msgs:
-        print("-" * 60)
-        if kind == "text":
-            print(m["text"], f"\n  [{m['button_title']}] {m['url']}")
-        else:
-            print(m["header"])
-            for t, d, u in m["rows"]:
-                print(f"  • {t}\n    {d}\n    {u}")
+    # 섹션별로 번갈아 상위 글 제목을 200자 안에서 덧붙임 (전체는 버튼으로)
+    queues = [list(s.items) for s in sections if s.items]
+    picks: list[Item] = []
+    while any(queues):
+        for q in queues:
+            if q:
+                picks.append(q.pop(0))
+    body = ""
+    for it in picks:
+        line = f"\n{'❗' if it.priority else '·'}{truncate(it.title, 30)}"
+        if len(text) + 1 + len(body) + len(line) > TEXT_LIMIT:
+            break
+        body += line
+    return text + ("\n" + body if body else "")
 
 
 def export_new_refresh_token(token: str) -> None:
@@ -152,16 +116,18 @@ def main(argv=None) -> int:
              ", ".join(f"{s.label} {len(s.items)}(❗{s.priority_count})" for s in sections))
 
     day_str = target.isoformat()
-    full_url = digest_url(day_str) if total else None
-    msgs = build_messages(today, target, sections, failed, cfg, full_url)
+    text = build_message(target, sections, failed)
+    url = page_url(day_str) or "https://www.boho.or.kr"
 
     if args.dry_run:
-        print_messages(msgs)
+        print("-" * 60)
+        print(text, f"\n  [전체 목록 보기] {url}\n  ({len(text)}자 / {TEXT_LIMIT}자)")
         return 0
 
     if total:
         digest.write(ROOT / "digests" / f"{day_str}.md",
                      digest.build_markdown(target, sections, failed))
+    digest.write_site(ROOT / "site", target, sections, failed)
 
     if total or cfg.get("kakao", {}).get("notify_when_empty", True):
         client = KakaoClient(
@@ -174,8 +140,8 @@ def main(argv=None) -> int:
         finally:
             if client.new_refresh_token:
                 export_new_refresh_token(client.new_refresh_token)
-        send_all(client, msgs)
-        log.info("카톡 %d건 발송 완료", len(msgs))
+        client.send_text(text, url, "전체 목록 보기")
+        log.info("카톡 1건 발송 완료 → %s", url)
 
     # 발송 성공 후에만 기록 → 실패 시 다음 실행에 다시 포함됨
     store.add(handled, today)

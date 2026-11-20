@@ -166,7 +166,6 @@ scoring:
     사이버: 1
 
 kakao:
-  max_messages: 20           # 하루 최대 카톡 메시지 수 (요약 메시지 포함)
   notify_when_empty: true    # 새 소식이 없어도 "새 소식 없음" 메시지 발송
 
 state:

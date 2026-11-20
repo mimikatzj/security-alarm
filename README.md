@@ -1,6 +1,6 @@
 # security-alarm
 
-국내외 보안 사고·정책 보도자료·보안 가이드를 지정 메뉴에서 모아서 **매일 아침 8시(KST) 카카오톡 "나에게 보내기"로 보내는** 배치입니다.
+국내외 보안 사고·정책 보도자료·보안 가이드를 지정 메뉴에서 모아서 **매일 아침 7시(KST) 카카오톡 "나에게 보내기"로 보내는** 배치입니다.
 LLM 없이 Python으로만 동작하고, GitHub Actions에서 실행됩니다.
 
 ## 구조
@@ -10,7 +10,7 @@ alarm/
   collector.py   수집기 (RSS / 개인정보위·과기정통부 목록 파싱 / 금융보안원 API), 날짜는 KST 기준
   filters.py     제외 키워드, 이미 보낸 글/중복 제목 제거, 키워드 점수, 섹션별 상한 적용
   kakao.py       토큰 갱신 + 나에게 보내기 (리스트/텍스트 템플릿)
-  digest.py      전체 목록 마크다운 (digests/YYYY-MM-DD.md)
+  digest.py      전체 목록 마크다운 (digests/) + 웹 페이지 (site/, GitHub Pages로 배포)
   state.py       이미 보낸 글 기록 (state/seen.json)
   main.py        진입점
 config/sources.yaml   수집 소스, 키워드, 메시지 수 설정
@@ -58,8 +58,9 @@ python -m venv .venv
    https://www.msit.go.kr
    https://www.boho.or.kr
    https://www.fsec.or.kr
-   https://github.com
+   https://<GitHub계정>.github.io
    ```
+   마지막 줄은 "전체 목록 보기" 페이지 주소입니다 (예: `https://mimikatzj.github.io`).
 6. (선택) **보안 → Client Secret**을 쓰고 있으면 그 값도 복사
 
 ### 2. refresh token 발급 (로컬, 1회)
@@ -82,7 +83,12 @@ python -m venv .venv
 워크플로가 새 토큰을 `KAKAO_REFRESH_TOKEN` Secret에 자동으로 저장하려면 **Fine-grained PAT**(해당 저장소, *Secrets: Read and write* 권한)를 `GH_PAT`로 등록하세요.
 등록하지 않으면 경고만 남기며, 약 2개월마다 2단계를 다시 해야 합니다.
 
-### 4. 실행 확인
+### 4. GitHub Pages 켜기 (전체 목록 페이지)
+`Settings → Pages → Build and deployment → Source`를 **GitHub Actions**로 선택합니다.
+무료 플랜에서는 **public 저장소**에서만 Pages를 쓸 수 있습니다 (private은 GitHub Pro 이상 필요, 이때도 페이지 자체는 공개됨).
+저장소에는 토큰 같은 비밀값이 없고(전부 Secrets), 페이지에는 공개 기사 링크만 올라가며 검색엔진 수집은 막아 두었습니다.
+
+### 5. 실행 확인
 `Actions → daily-security-brief → Run workflow` (먼저 `dry_run` 체크해서 로그 확인 → 체크 해제 후 실제 발송)
 
 ## 동작 방식
@@ -99,9 +105,9 @@ python -m venv .venv
   단, **`[사고] 해외`는 예외로 상한 3건을 지킵니다** (`strict_limit: true`, 우선순위 글부터 채움).
 - **같은 사건 중복 제거**: `[사고] 국내`, `[사고] 해외` 섹션 안에서만 합니다 (`dedupe: true`). 제목의 드문 단어(회사명·제품명) 겹침으로 판단하고 우선순위가 높은 기사를 남깁니다. 기준은 `dedupe_threshold`로 조절합니다.
 - **재발송 방지**: 보낸 글 링크를 `state/seen.json`에 기록하고 워크플로가 커밋합니다 (45일 보관). 같은 날짜로 다시 실행해도 같은 글은 다시 오지 않고, 발송에 실패하면 기록하지 않습니다.
-- **카톡 메시지**: 요약 1건 + 섹션별 리스트(3건씩 묶음), 하루 최대 `max_messages`(기본 20)건. 같은 내용이 `digests/날짜.md`에도 남고 "전체 목록" 버튼으로 연결됩니다.
+- **카톡 메시지**: 하루 **1건**. 섹션별 건수와 주요 제목(200자 한도)을 담고, **전체 목록 보기** 버튼을 누르면 기사 링크가 모두 달린 웹 페이지(GitHub Pages, `https://<계정>.github.io/<저장소>/<날짜>.html`)가 열립니다. 같은 목록이 `digests/날짜.md`에도 남습니다.
 - **장애 대응**: 소스 하나가 실패해도 나머지는 발송하고 요약 메시지에 "수집 실패"를 표시합니다. 전부 실패하거나 카톡 발송이 실패하면 워크플로가 실패하고 GitHub이 메일로 알려줍니다.
 - 커밋이 매일 생기므로 "60일 동안 활동 없는 저장소의 스케줄 비활성화"에도 걸리지 않습니다.
 
 ## 주의
-- 저장소가 **private**이면 "전체 목록" 링크(github.com)는 GitHub에 로그인해야 볼 수 있습니다.
+- 카톡 발송 직후 1분 정도는 페이지 배포가 끝나지 않아 "전체 목록 보기"가 404일 수 있습니다.

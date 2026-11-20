@@ -15,7 +15,9 @@ on:
         default: ""
 
 permissions:
-  contents: write   # state/seen.json, digests/ 커밋용
+  contents: write   # state/seen.json, digests/, site/ 커밋용
+  pages: write      # GitHub Pages 배포 (전체 목록 페이지)
+  id-token: write
 
 concurrency:
   group: daily-security-brief
@@ -25,6 +27,8 @@ jobs:
   brief:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment:
+      name: github-pages
     steps:
       - uses: actions/checkout@v5
 
@@ -68,7 +72,18 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state digests
+          git add state digests site
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "brief: $(TZ=Asia/Seoul date +%F)"
           git push
+
+      # 카톡 '전체 목록 보기' 버튼이 여는 페이지 (https://<계정>.github.io/<저장소>/<날짜>.html)
+      - name: Upload page
+        if: success() && !inputs.dry_run
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy page
+        if: success() && !inputs.dry_run
+        uses: actions/deploy-pages@v4
