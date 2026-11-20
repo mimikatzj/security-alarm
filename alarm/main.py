@@ -21,7 +21,6 @@ from . import digest
 from .collector import KST, Item, collect
 from .filters import Section, load_sections, select
 from .kakao import TEXT_LIMIT, KakaoClient
-from .state import SeenStore
 
 ROOT = Path(__file__).resolve().parent.parent
 log = logging.getLogger("alarm")
@@ -141,8 +140,7 @@ def export_new_refresh_token(token: str) -> None:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="보안뉴스·가이드 일일 브리핑")
     parser.add_argument("--config", default=str(ROOT / "config" / "sources.yaml"))
-    parser.add_argument("--dry-run", action="store_true", help="카톡 발송/상태 저장 없이 출력만")
-    parser.add_argument("--ignore-seen", action="store_true", help="이미 보낸 글도 포함")
+    parser.add_argument("--dry-run", action="store_true", help="카톡 발송/페이지 저장 없이 출력만")
     parser.add_argument("--date", type=date.fromisoformat,
                         help="대상 날짜 YYYY-MM-DD (기본: 어제, KST). 누락된 날 다시 보낼 때 사용")
     args = parser.parse_args(argv)
@@ -158,16 +156,14 @@ def main(argv=None) -> int:
     start = datetime.combine(target, time.min, tzinfo=KST)
     end = start + timedelta(days=1)
 
-    store = SeenStore(ROOT / "state" / "seen.json")
     per_source, failed = collect(sources, start, end)
     if not per_source:
         log.error("모든 소스 수집 실패")
         return 1
 
-    sections, handled = select(per_source, sources, load_sections(cfg), cfg,
-                               set() if args.ignore_seen else store.ids())
+    sections = select(per_source, sources, load_sections(cfg), cfg)
     total = sum(len(s.items) for s in sections)
-    log.info("대상일 %s, 새 소식 %d건 (%s)", target, total,
+    log.info("대상일 %s, %d건 (%s)", target, total,
              ", ".join(f"{s.label} {len(s.items)}(❗{s.priority_count})" for s in sections))
 
     day_str = target.isoformat()
@@ -179,10 +175,8 @@ def main(argv=None) -> int:
         print(text, f"\n  [전체 목록 보기] {url}\n  ({len(text)}자 / {TEXT_LIMIT}자)")
         return 0
 
-    if total:
-        digest.write(ROOT / "digests" / f"{day_str}.md",
-                     digest.build_markdown(target, sections, failed))
-    digest.write_site(ROOT / "site", target, sections, failed)
+    digest.write_site(ROOT / "site", target, sections, failed,
+                      keep_days=cfg.get("site", {}).get("retention_days", 30), today=today)
 
     if total or cfg.get("kakao", {}).get("notify_when_empty", True):
         client = KakaoClient(
@@ -197,11 +191,6 @@ def main(argv=None) -> int:
                 export_new_refresh_token(client.new_refresh_token)
         client.send_text(text, url, "전체 목록 보기")
         log.info("카톡 1건 발송 완료 → %s", url)
-
-    # 발송 성공 후에만 기록 → 실패 시 다음 실행에 다시 포함됨
-    store.add(handled, today)
-    store.prune(today, cfg.get("state", {}).get("retention_days", 45))
-    store.save()
     return 0
 
 

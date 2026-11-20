@@ -173,5 +173,5 @@ scoring:
 kakao:
   notify_when_empty: true    # 새 소식이 없어도 "새 소식 없음" 메시지 발송
 
-state:
-  retention_days: 45         # 이미 보낸 글 기록 보관 기간
+site:
+  retention_days: 30         # "전체 목록 보기" 페이지 보관 기간 (지난 카톡 링크가 열리는 기간)

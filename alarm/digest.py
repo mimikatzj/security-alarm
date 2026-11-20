@@ -1,7 +1,7 @@
-"""전체 목록: 마크다운(digests/) + 웹 페이지(site/, GitHub Pages)."""
+"""전체 목록 웹 페이지 (site/, GitHub Pages 로 배포)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 from pathlib import Path
 
@@ -19,25 +19,6 @@ def fmt_pub(it: Item) -> str:
         return "-"
     t = it.published.astimezone(KST)
     return t.strftime("%m/%d") if (t.hour, t.minute) == (0, 0) else t.strftime("%m/%d %H:%M")
-
-
-def build_markdown(target: date, sections, failed: list[str]) -> str:
-    total = sum(len(s.items) for s in sections)
-    lines = [f"# 보안 브리핑 — {fmt_day(target)} 게시글", "", f"새 소식 {total}건 (❗ = 우선순위)", ""]
-    if failed:
-        lines += [f"> ⚠️ 수집 실패: {', '.join(failed)}", ""]
-    for sec in sections:
-        if not sec.items:
-            continue
-        lines += [f"## {sec.label} ({len(sec.items)})", ""]
-        for it in sec.items:
-            mark = "❗ " if it.priority else ""
-            title = it.title.replace("[", "\\[").replace("]", "\\]")
-            lines.append(f"- {mark}[{title}]({it.link}) — {it.source} · {fmt_pub(it)}")
-            if it.summary:
-                lines.append(f"  - {it.summary[:160]}")
-        lines.append("")
-    return "\n".join(lines)
 
 
 def write(path: Path, content: str) -> None:
@@ -113,6 +94,16 @@ def build_index(site_dir: Path) -> str:
     return _page("보안 브리핑", f"<h1>보안 브리핑</h1><p class='sub'>날짜별 목록</p><ul>{rows}</ul>")
 
 
-def write_site(site_dir: Path, target: date, sections, failed: list[str]) -> None:
+def write_site(site_dir: Path, target: date, sections, failed: list[str],
+               keep_days: int = 30, today: date | None = None) -> None:
+    """날짜 페이지 저장 + keep_days 보다 오래된 페이지 삭제 + 목차 갱신."""
     write(site_dir / f"{target.isoformat()}.html", build_html(target, sections, failed))
+    if keep_days and today:
+        cutoff = today - timedelta(days=keep_days)
+        for p in site_dir.glob("????-??-??.html"):
+            try:
+                if date.fromisoformat(p.stem) < cutoff:
+                    p.unlink()
+            except ValueError:
+                pass
     write(site_dir / "index.html", build_index(site_dir))

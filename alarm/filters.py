@@ -172,26 +172,20 @@ def select(
     sources: list[dict],
     sections: list[Section],
     cfg: dict,
-    seen: set[str],
-) -> tuple[list[Section], set[str]]:
-    """섹션별로 선별된 항목을 채워 반환. 두 번째 값은 이번에 '처리'한 모든 uid
-    (상한·중복으로 안 보낸 글도 포함 — 다시 실행해도 같은 글이 나오지 않게 기록)."""
+) -> list[Section]:
+    """섹션별로 선별된 항목을 채워 반환. 같은 날짜로 다시 실행하면 같은 결과가 나온다."""
     global_excl = cfg.get("filters", {}).get("exclude_keywords", []) or []
     weights = cfg.get("scoring", {}).get("keywords", {}) or {}
     rules = cfg.get("priority_rules", {}) or {}
     threshold = cfg.get("dedupe_threshold", 0.35)
     src_cfg = {s["name"]: s for s in sources}
 
-    handled: set[str] = set()
     candidates: list[Item] = []
     for name, items in per_source.items():
         sc = src_cfg[name]
         include = sc.get("include_keywords") or []
         exclude = global_excl + (sc.get("exclude_keywords") or [])
         for it in items:
-            if it.uid in seen:
-                continue
-            handled.add(it.uid)
             text = f"{it.title} {it.summary}"
             if include and not _contains(text, include):
                 continue
@@ -206,7 +200,7 @@ def select(
         if sec.dedupe:
             pool = dedupe(pool, threshold)
         sec.items = _pick(pool, sec.limit, sec.limit_per_source, sec.strict_limit)
-    return sections, handled
+    return sections
 
 
 def _pick(pool: list[Item], limit: int, per_source: int, strict: bool = False) -> list[Item]:
