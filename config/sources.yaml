@@ -8,26 +8,31 @@
 #   limit_per_source : 소스별 최대 건수 (0 = 제한 없음)
 #   dedupe           : 같은 사건을 다룬 다른 매체 기사 중복 제거
 #   strict_limit     : true 면 우선순위 글도 상한을 넘지 않음 (우선순위 글부터 채움)
+#   short            : 카톡 요약(200자)에 쓰는 짧은 이름
 # ※ 기본은 우선순위 글(priority_rules)이 상한을 넘어도 전부 보여주고, 남는 자리만 일반 글로 채웁니다.
 sections:
   - track: 사고
     region: 국내
     label: "[사고] 국내"
+    short: 사고·국내
     limit: 5
     dedupe: true
   - track: 사고
     region: 해외
     label: "[사고] 해외"
+    short: 사고·해외
     limit: 3
     strict_limit: true   # 해외는 우선순위 글이 많아도 최대 3건
     dedupe: true
   - track: 정책
     region: 국내
     label: "[정책]"
+    short: 정책
     limit_per_source: 3
   - track: 가이드
     region: 국내
     label: "[가이드]"
+    short: 가이드
     limit: 0            # 올라오는 건 전부
 
 # 중복 판단 기준 (0~1). 높일수록 엄격(덜 묶음), 낮출수록 느슨(많이 묶음)

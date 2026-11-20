@@ -20,7 +20,11 @@ class Section:
     limit_per_source: int = 0   # 소스별 상한 (0 = 제한 없음)
     dedupe: bool = False        # 같은 사건 다른 기사 중복 제거
     strict_limit: bool = False  # True 면 우선순위 글도 상한을 넘지 않음
+    short: str = ""             # 카톡 요약용 짧은 이름 (없으면 label)
     items: list[Item] = field(default_factory=list)
+
+    def __post_init__(self):
+        self.short = self.short or self.label
 
     def matches(self, it: Item) -> bool:
         return it.track == self.track and (not self.region or it.region == self.region)
@@ -36,7 +40,8 @@ def load_sections(cfg: dict) -> list[Section]:
         label = s.get("label") or (f"[{s['track']}] {s['region']}" if s.get("region") else f"[{s['track']}]")
         out.append(Section(s["track"], s.get("region", ""), label,
                            s.get("limit", 0) or 0, s.get("limit_per_source", 0) or 0,
-                           bool(s.get("dedupe", False)), bool(s.get("strict_limit", False))))
+                           bool(s.get("dedupe", False)), bool(s.get("strict_limit", False)),
+                           s.get("short", "")))
     return out
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import warnings
 from datetime import date, datetime, time, timedelta
@@ -19,7 +20,7 @@ from bs4 import MarkupResemblesLocatorWarning
 from . import digest
 from .collector import KST, Item, collect
 from .filters import Section, load_sections, select
-from .kakao import TEXT_LIMIT, KakaoClient, truncate
+from .kakao import TEXT_LIMIT, KakaoClient
 from .state import SeenStore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,34 +43,88 @@ def page_url(day_str: str | None = None) -> str | None:
     return f"{base}/{day_str}.html" if day_str else f"{base}/"
 
 
-def build_message(target, sections: list[Section], failed) -> str:
-    """카톡 1건 본문 (최대 200자): 섹션별 건수 + 남는 자리에 주요 제목."""
-    head = [f"🛡️ 보안 브리핑 · {target.month}/{target.day}({digest.WEEKDAYS[target.weekday()]}) 게시글"]
-    total = sum(len(s.items) for s in sections)
-    if total == 0:
-        head.append("새 소식이 없습니다.")
-    else:
-        for s in sections:
-            pc = s.priority_count
-            head.append(f"{s.label} {len(s.items)}건" + (f" (❗{pc})" if pc else ""))
-    if failed:
-        head.append(f"⚠️ 수집 실패: {', '.join(failed)}")
-    text = "\n".join(head)
+LINE_WIDTH = 30   # 카톡 말풍선 한 줄 폭 (한글 1자 = 2, 영문·숫자 1자 = 1) — 제목을 한 줄에 맞춤
+MIN_UNITS = 10    # 남은 글자 수가 이보다 적으면 제목을 더 넣지 않음
 
-    # 섹션별로 번갈아 상위 글 제목을 200자 안에서 덧붙임 (전체는 버튼으로)
-    queues = [list(s.items) for s in sections if s.items]
-    picks: list[Item] = []
-    while any(queues):
-        for q in queues:
-            if q:
-                picks.append(q.pop(0))
-    body = ""
-    for it in picks:
-        line = f"\n{'❗' if it.priority else '·'}{truncate(it.title, 30)}"
-        if len(text) + 1 + len(body) + len(line) > TEXT_LIMIT:
+
+def _units(s: str) -> int:
+    """카카오가 세는 글자 수 (UTF-16 기준, 이모지는 2)."""
+    return len(s.encode("utf-16-le")) // 2
+
+
+def _width(ch: str) -> int:
+    return 2 if ord(ch) > 0x2E80 else 1
+
+
+def _fit(s: str, width: int, max_units: int) -> str:
+    """화면 폭(width)과 남은 글자 수(max_units) 안에 들어가게 자르기."""
+    if sum(map(_width, s)) <= width and _units(s) <= max_units:
+        return s
+    out, w = "", 0
+    for ch in s:
+        if w + _width(ch) > width - 1 or _units(out + ch) > max_units - 1:
             break
-        body += line
-    return text + ("\n" + body if body else "")
+        out, w = out + ch, w + _width(ch)
+    return out.rstrip(" ,·-–:") + "…"
+
+
+_TAG_RE = re.compile(r"^\s*(\[[^\]]{1,10}\]\s*)+")        # [단독] [긴급] 머리말
+_ORG_RE = re.compile(r"^\s*[^\s,]{2,10},\s*")            # "개인정보위, " 같은 기관명
+_QUOTE_RE = re.compile(r"[‘’“”'\"]")
+
+
+def short_title(title: str) -> str:
+    """카톡 요약용 제목: 머리말·기관명·따옴표 제거, '...'은 공백으로."""
+    t = _QUOTE_RE.sub("", _ORG_RE.sub("", _TAG_RE.sub("", title)))
+    t = re.sub(r"\s*(?:\.{2,}|…)\s*", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def build_message(target, sections: list[Section], failed) -> str:
+    """카톡 1건 본문 (최대 200자).
+    섹션 머리(건수)는 항상 넣고, 남는 자리에 섹션별로 번갈아 주요 제목을 한 줄씩 채운다."""
+    wd = digest.WEEKDAYS[target.weekday()]
+    top = [f"🛡️ {target.month}/{target.day}({wd}) 보안 브리핑"]
+    if failed:
+        top.append(f"⚠️수집 실패: {', '.join(failed)}")
+    if not any(s.items for s in sections):
+        top.append("새 소식이 없습니다.")
+
+    heads = []
+    for s in sections:
+        pc = s.priority_count
+        heads.append(f"■{s.short} {len(s.items)}" + (f" (❗{pc})" if pc else ""))
+
+    def render(chosen: list[list[str]]) -> str:
+        lines = list(top)
+        for h, titles in zip(heads, chosen):
+            lines.append(h)
+            lines += titles
+        return "\n".join(lines)
+
+    chosen: list[list[str]] = [[] for _ in sections]
+    queues = [list(s.items) for s in sections]
+    progress = True
+    while progress:  # 섹션별로 1건씩 번갈아 (우선순위 글이 앞에 정렬돼 있음)
+        progress = False
+        for idx, q in enumerate(queues):
+            if not q:
+                continue
+            it = q.pop(0)
+            mark = "❗" if it.priority else "·"
+            room = TEXT_LIMIT - _units(render(chosen)) - 1 - _units(mark)
+            if room < MIN_UNITS:
+                queues = [[] for _ in queues]
+                break
+            line = mark + _fit(short_title(it.title), LINE_WIDTH, room)
+            trial = [list(c) for c in chosen]
+            trial[idx].append(line)
+            if _units(render(trial)) > TEXT_LIMIT:
+                queues = [[] for _ in queues]
+                break
+            chosen = trial
+            progress = True
+    return render(chosen)
 
 
 def export_new_refresh_token(token: str) -> None:
