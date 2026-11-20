@@ -262,7 +262,7 @@ def collect(
 ) -> tuple[dict[str, list[Item]], list[str]]:
     """활성화된 모든 소스 수집 → 게시 시각이 [start, end) 인 글만.
     ({소스명: 항목}, [경고 문구]) 반환. 날짜를 알 수 없는 글은 제외.
-    경고: 접속 실패 / 목록 0건·날짜 판독 불가(사이트 구조 변경 의심) / 대상일 앞부분이 목록에서 밀려남"""
+    경고: 접속 실패 / 목록 0건·날짜 판독 불가(사이트 구조 변경 의심)"""
     result: dict[str, list[Item]] = {}
     issues: list[str] = []
     for src in sources:
@@ -288,9 +288,5 @@ def collect(
             log.warning("[%s] 모든 글의 날짜를 읽지 못함 (페이지 구조 변경 가능성)", name)
             issues.append(f"수집 실패: {name}(날짜 판독 불가)")
             continue
-        oldest = min(i.published for i in dated)
-        if oldest > start:  # 목록에 대상일 0시 이전 글이 없음 → 앞부분이 밀려났을 수 있음
-            log.warning("[%s] 가장 오래된 글이 %s — 대상일 일부 누락 가능", name, oldest.isoformat())
-            issues.append(f"일부 누락 가능: {name}")
         result[name] = in_range
     return result, issues

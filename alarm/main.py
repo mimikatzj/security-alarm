@@ -86,7 +86,7 @@ def build_message(target, sections: list[Section]) -> str:
     섹션 머리(건수)는 항상 넣고, 남는 자리에 섹션별로 번갈아 주요 제목을 한 줄씩 채운다."""
     wd = digest.WEEKDAYS[target.weekday()]
     top = [f"🛡️ {target.month}/{target.day}({wd}) 보안 브리핑"]
-    # 수집 실패·누락 경고는 카톡에 넣지 않고 전체 목록 페이지 맨 아래에만 표시
+    # 수집 실패 경고는 카톡에 넣지 않고 전체 목록 페이지 맨 아래에만 표시
     if not any(s.items for s in sections):
         top.append("새 소식이 없습니다.")
 
