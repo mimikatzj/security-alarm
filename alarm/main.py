@@ -67,14 +67,16 @@ def _fit(s: str, width: int, max_units: int) -> str:
     return out.rstrip(" ,·-–:") + "…"
 
 
-_TAG_RE = re.compile(r"^\s*(\[[^\]]{1,10}\]\s*)+")        # [단독] [긴급] 머리말
+_TAG_RE = re.compile(r"\[\s*(단독|긴급|속보|종합|기획|특집|칼럼|인터뷰|기자수첩|해설|포커스|이슈|분석|현장)[^\]]{0,6}\]\s*")  # 흔한 머리말만
+_BRACKET_RE = re.compile(r"\[([^\]]{1,20})\]")  # 나머지 [더존비즈온 사태] 등은 괄호만 벗김
 _ORG_RE = re.compile(r"^\s*[^\s,]{2,10},\s*")            # "개인정보위, " 같은 기관명
 _QUOTE_RE = re.compile(r"[‘’“”'\"]")
 
 
 def short_title(title: str) -> str:
     """카톡 요약용 제목: 머리말·기관명·따옴표 제거, '...'은 공백으로."""
-    t = _QUOTE_RE.sub("", _ORG_RE.sub("", _TAG_RE.sub("", title)))
+    t = _BRACKET_RE.sub(r"\1 ", _TAG_RE.sub("", title))
+    t = _QUOTE_RE.sub("", _ORG_RE.sub("", t))
     t = re.sub(r"\s*(?:\.{2,}|…)\s*", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 

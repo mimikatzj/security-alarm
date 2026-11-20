@@ -49,21 +49,25 @@ priority_rules:
     # ① 실제 침해사고가 난 건 (최우선, 취약점 공개·패치 권고 기사는 제외)
     - level: 2
       any: [해킹, 침해, 유출, 랜섬웨어, 탈취, 디도스, DDoS, 감염, 털려, 털린, 피해,
-            침투, 장악, 사이버 공격, 공격 확인, 노린 공격,
+            침투, 장악, 사이버 공격, 공격 확인, 노린 공격, 노려, 백도어, 사태, 접속권,
+            악성코드 설치, 악성코드 유포,
             breach, breached, hacked, data leak, leaked, stolen, compromised, extortion,
             cyberattack, cyber attack, ransomware attack, data theft]
-      none: [위험, 주의, 경고, 점검, 권고, 패치, 업데이트, 취약점 공개, 대응 방안,
-             warns, patch, flaw, vulnerability]
+      none: [위험, 주의, 경고, 점검, 권고, 패치, 업데이트 권고, 보안 업데이트, 업데이트 필요,
+             업데이트 배포, 취약점 공개, 대응 방안, warns, patch, flaw, vulnerability]
     # ② 긴급·고위험 취약점 (제로데이, 실제 악용, 긴급 패치 등)
+    #    업체의 도구·제품 소개 기사는 제외
     - level: 1
       any: [제로데이, "0-day", zero-day, 실제 악용, 악용 중, 악용 확인, 악용 경보, 원격 코드 실행, 원격 해킹,
             actively exploited, active exploitation, exploited in attacks, exploited in the wild,
             "CVSS 10", "CVSS 9"]
+      none: [도구, 출시, 솔루션]
     - level: 1
       all:
         - [긴급, 고위험, 치명적, 심각, critical, emergency, urgent]
         - [취약점, 패치, 업데이트, 결함, 보안 업데이트, flaw, vulnerability, vulnerabilities,
            patch, bug, RCE]
+      none: [도구, 출시, 솔루션]
   정책:   # 보안 관련 정책 변경, 과징금, 조사
     - any: [과징금, 과태료, 제재, 처분, 시정명령, 조사]
     - all:
@@ -75,7 +79,7 @@ priority_rules:
 #   type             : rss | pipc_board | msit_board | fsec_board
 #   link_prefix      : 링크가 이 주소로 시작하는 글만 수집 (메뉴별 RSS 가 없는 사이트용)
 #   include_keywords : 지정하면 제목/요약에 하나라도 포함된 글만 수집
-#   exclude_keywords : 소스별 제외 키워드 (전역 filters.exclude_keywords 에 추가됨)
+#   exclude_keywords : 소스별 제외 키워드 (제목 기준, 우선순위 글에는 적용 안 됨)
 sources:
   # 사고 · 국내
   - name: 보안뉴스 사건·사고
@@ -109,13 +113,20 @@ sources:
     region: 국내
     type: pipc_board
     url: https://pipc.go.kr/np/cop/bbs/selectBoardList.do?bbsId=BS074&mCode=C020010000
+    # 전부 개인정보 관련이라 행사·국제협력·인사 같은 정보성 보도자료만 뺀다 (과징금·조사 등 우선순위 글은 유지)
+    exclude_keywords: [공모전, 인사발령, 정부인사, 총회, 협력 네트워크, 협력 강화, 토론회, 협의회,
+                       간담회, 모색, 논의, 밑그림, 이노베이션 존, 해법, 함께 찾, 경험 공유, 개최, 시상,
+                       수상, 업무협약, 업무 협약, 기념]
   - name: 과기정통부 보도자료
     track: 정책
     region: 국내
     type: msit_board
     url: https://www.msit.go.kr/bbs/list.do?sCode=user&mPid=208&mId=307
-    # 보안과 무관한 보도자료를 아예 빼려면 아래 주석을 해제
-    # include_keywords: [보안, 해킹, 침해, 취약점, 개인정보, 사이버, 랜섬웨어, 유출, 정보보호]
+    # 보도자료 대부분이 보안과 무관 → 아래 단어가 들어간 글만 수집
+    include_keywords: [보안, 해킹, 해커, 침해, 취약점, 개인정보, 사이버, 랜섬웨어, 유출, 정보보호,
+                       악성, 디도스, DDoS, 피싱, 스미싱, 전기통신금융사기, 서비스 장애, 통신 장애,
+                       전산 장애, 정보통신망]
+    exclude_keywords: [개최, 시상, 수상, 공모전, 업무협약, 업무 협약, 인사발령]
 
   # 가이드
   - name: KISA 보호나라

@@ -184,15 +184,18 @@ def select(
     for name, items in per_source.items():
         sc = src_cfg[name]
         include = sc.get("include_keywords") or []
-        exclude = global_excl + (sc.get("exclude_keywords") or [])
+        src_excl = sc.get("exclude_keywords") or []
         for it in items:
             text = f"{it.title} {it.summary}"
             if include and not _contains(text, include):
                 continue
-            if exclude and _contains(text, exclude):
+            if global_excl and _contains(text, global_excl):
+                continue
+            it.priority = priority_level(it, rules.get(it.track, []))
+            # 소스별 제외 키워드는 일반 글에만 적용 (과징금·조사 같은 우선순위 글은 살림)
+            if src_excl and not it.priority and _contains(it.title, src_excl):
                 continue
             it.score = score(it, weights)
-            it.priority = priority_level(it, rules.get(it.track, []))
             candidates.append(it)
 
     for sec in sections:
