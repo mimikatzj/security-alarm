@@ -81,15 +81,12 @@ def short_title(title: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def build_message(target, sections: list[Section], failed) -> str:
+def build_message(target, sections: list[Section]) -> str:
     """카톡 1건 본문 (최대 200자).
     섹션 머리(건수)는 항상 넣고, 남는 자리에 섹션별로 번갈아 주요 제목을 한 줄씩 채운다."""
     wd = digest.WEEKDAYS[target.weekday()]
     top = [f"🛡️ {target.month}/{target.day}({wd}) 보안 브리핑"]
-    # 카톡에는 '수집 실패'만 표시 ('일부 누락 가능'은 전체 목록 페이지와 로그에만)
-    shown = [x for x in failed if x.startswith("수집 실패")]
-    if shown:
-        top += [f"⚠️{line}" for line in digest.group_issues(shown)]
+    # 수집 실패·누락 경고는 카톡에 넣지 않고 전체 목록 페이지 맨 아래에만 표시
     if not any(s.items for s in sections):
         top.append("새 소식이 없습니다.")
 
@@ -171,7 +168,7 @@ def main(argv=None) -> int:
              ", ".join(f"{s.label} {len(s.items)}(❗{s.priority_count})" for s in sections))
 
     day_str = target.isoformat()
-    text = build_message(target, sections, failed)
+    text = build_message(target, sections)
     url = page_url(day_str) or "https://www.boho.or.kr"
 
     if args.dry_run:

@@ -36,7 +36,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,
 main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
 h1{font-size:1.3rem;margin:0 0 4px}
 .sub{color:var(--muted);font-size:.9rem;margin:0 0 20px}
-.warn{background:var(--card);border-left:3px solid var(--pri);padding:8px 12px;margin:0 0 16px;font-size:.9rem}
+.issues{margin-top:28px}
+.warn{background:var(--card);border-left:3px solid var(--pri);padding:8px 12px;margin:0 0 8px;font-size:.85rem;color:var(--muted)}
 h2{font-size:1.05rem;margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 h2 small{color:var(--muted);font-weight:normal}
 ul{list-style:none;margin:0;padding:0}
@@ -76,8 +77,6 @@ def build_html(target: date, sections, failed: list[str]) -> str:
     pc = sum(s.priority_count for s in sections)
     out = [f"<h1>보안 브리핑 · {fmt_day(target)}</h1>",
            f"<p class='sub'>게시글 {total}건" + (f" · ❗우선 {pc}건" if pc else "") + "</p>"]
-    if failed:
-        out.append("".join(f"<p class='warn'>⚠️ {escape(x)}</p>" for x in group_issues(failed)))
     for sec in sections:
         out.append(f"<h2>{escape(sec.label)} <small>{len(sec.items)}건</small></h2>")
         if not sec.items:
@@ -91,6 +90,9 @@ def build_html(target: date, sections, failed: list[str]) -> str:
                 f"<li>{mark}<a href='{escape(it.link)}' target='_blank' rel='noopener'>{escape(it.title)}</a>"
                 f"<div class='meta'>{escape(it.source)} · {fmt_pub(it)}</div>{summ}</li>")
         out.append("</ul>")
+    if failed:  # 수집 경고는 맨 아래에
+        out.append("<div class='issues'>" + "".join(
+            f"<p class='warn'>⚠️ {escape(x)}</p>" for x in group_issues(failed)) + "</div>")
     out.append("<footer><a href='./'>지난 브리핑 보기</a></footer>")
     return _page(f"보안 브리핑 {target.isoformat()}", "".join(out))
 
