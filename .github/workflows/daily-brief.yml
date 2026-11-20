@@ -13,6 +13,10 @@ on:
         description: "대상 날짜 YYYY-MM-DD (비우면 어제). 누락된 날 다시 보낼 때"
         required: false
         default: ""
+      ignore_seen:
+        description: "이미 보낸 글도 다시 포함 (같은 날짜 재테스트용)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # state/seen.json, digests/, site/ 커밋용
@@ -49,6 +53,7 @@ jobs:
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.ignore_seen }}" = "true" ]; then ARGS="$ARGS --ignore-seen"; fi
           if [ -n "$TARGET_DATE" ]; then ARGS="$ARGS --date $TARGET_DATE"; fi
           python -m alarm.main $ARGS
 
