@@ -1,0 +1,74 @@
+name: daily-security-brief
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # 매일 07:00 KST (UTC 22:00), 전날 게시글 대상. Actions 특성상 수~수십 분 지연될 수 있음
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "카톡 발송 없이 로그로만 확인"
+        type: boolean
+        default: false
+      date:
+        description: "대상 날짜 YYYY-MM-DD (비우면 어제). 누락된 날 다시 보낼 때"
+        required: false
+        default: ""
+
+permissions:
+  contents: write   # state/seen.json, digests/ 커밋용
+
+concurrency:
+  group: daily-security-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Collect & send
+        env:
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          KAKAO_NEW_TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
+          TARGET_DATE: ${{ inputs.date }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "$TARGET_DATE" ]; then ARGS="$ARGS --date $TARGET_DATE"; fi
+          python -m alarm.main $ARGS
+
+      # 카카오 refresh token 은 만료 1개월 전부터 갱신본이 발급됨 → Secret 자동 교체
+      - name: Rotate Kakao refresh token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
+        run: |
+          if [ ! -s "$TOKEN_FILE" ]; then echo "갱신 불필요"; exit 0; fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::새 Kakao refresh token 이 발급됐지만 GH_PAT 가 없어 Secret 을 갱신하지 못했습니다."
+            exit 0
+          fi
+          gh secret set KAKAO_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$TOKEN_FILE"
+          echo "KAKAO_REFRESH_TOKEN 갱신 완료"
+
+      - name: Commit state & digest
+        if: success() && !inputs.dry_run
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state digests
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "brief: $(TZ=Asia/Seoul date +%F)"
+          git push
