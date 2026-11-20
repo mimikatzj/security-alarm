@@ -221,11 +221,24 @@ FETCHERS = {
 
 # ---------------------------------------------------------------- 진입점
 
-def fetch_source(src: dict) -> list[Item]:
+def _pages(src: dict):
+    """pages: N 이면 목록 1~N 페이지를 차례로 읽는다 (pageIndex 파라미터 사용 게시판)."""
     fetcher = FETCHERS[src.get("type", "rss")]
+    seen: set[str] = set()
+    for n in range(1, int(src.get("pages", 1)) + 1):
+        page_src = src if n == 1 else {**src, "url": f"{src['url']}&pageIndex={n}"}
+        for raw in fetcher(page_src):
+            key = raw.get("link") or raw.get("title")
+            if key in seen:
+                continue
+            seen.add(key)
+            yield raw
+
+
+def fetch_source(src: dict) -> list[Item]:
     prefix = src.get("link_prefix")
     items = []
-    for raw in fetcher(src):
+    for raw in _pages(src):
         title = clean_text(raw.get("title"))
         link = normalize_link(raw.get("link") or "")
         if not title:
@@ -248,23 +261,36 @@ def collect(
     sources: list[dict], start: datetime, end: datetime
 ) -> tuple[dict[str, list[Item]], list[str]]:
     """활성화된 모든 소스 수집 → 게시 시각이 [start, end) 인 글만.
-    ({소스명: 항목}, [실패한 소스명]) 반환. 날짜를 알 수 없는 글은 제외."""
+    ({소스명: 항목}, [경고 문구]) 반환. 날짜를 알 수 없는 글은 제외.
+    경고: 접속 실패 / 목록 0건·날짜 판독 불가(사이트 구조 변경 의심) / 대상일 앞부분이 목록에서 밀려남"""
     result: dict[str, list[Item]] = {}
-    failed: list[str] = []
+    issues: list[str] = []
     for src in sources:
         if not src.get("enabled", True):
             continue
+        name = src["name"]
         try:
             items = fetch_source(src)
         except Exception as exc:  # 한 소스 실패가 전체를 막지 않도록
-            log.warning("[%s] 수집 실패: %s", src["name"], exc)
-            failed.append(src["name"])
+            log.warning("[%s] 수집 실패: %s", name, exc)
+            issues.append(f"수집 실패: {name}")
             continue
-        in_range = [i for i in items if i.published and start <= i.published < end]
-        undated = sum(1 for i in items if not i.published)
-        log.info("[%s] %d건 수집, 대상일 %d건%s", src["name"], len(items), len(in_range),
+        dated = [i for i in items if i.published]
+        in_range = [i for i in dated if start <= i.published < end]
+        undated = len(items) - len(dated)
+        log.info("[%s] %d건 수집, 대상일 %d건%s", name, len(items), len(in_range),
                  f" (날짜 없음 {undated}건 제외)" if undated else "")
-        if items and len(items) == undated:
-            log.warning("[%s] 모든 글의 날짜를 읽지 못함 (페이지 구조 변경 가능성)", src["name"])
-        result[src["name"]] = in_range
-    return result, failed
+        if not items:
+            log.warning("[%s] 목록이 비어 있음 (페이지 구조 변경 가능성)", name)
+            issues.append(f"수집 실패: {name}(0건)")
+            continue
+        if not dated:
+            log.warning("[%s] 모든 글의 날짜를 읽지 못함 (페이지 구조 변경 가능성)", name)
+            issues.append(f"수집 실패: {name}(날짜 판독 불가)")
+            continue
+        oldest = min(i.published for i in dated)
+        if oldest > start:  # 목록에 대상일 0시 이전 글이 없음 → 앞부분이 밀려났을 수 있음
+            log.warning("[%s] 가장 오래된 글이 %s — 대상일 일부 누락 가능", name, oldest.isoformat())
+            issues.append(f"일부 누락 가능: {name}")
+        result[name] = in_range
+    return result, issues

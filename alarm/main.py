@@ -67,7 +67,7 @@ def _fit(s: str, width: int, max_units: int) -> str:
     return out.rstrip(" ,·-–:") + "…"
 
 
-_TAG_RE = re.compile(r"\[\s*(단독|긴급|속보|종합|기획|특집|칼럼|인터뷰|기자수첩|해설|포커스|이슈|분석|현장)[^\]]{0,6}\]\s*")  # 흔한 머리말만
+_TAG_RE = re.compile(r"\[\s*(단독|긴급|속보|종합|기획|특집|칼럼|인터뷰|기자수첩|해설|포커스|이슈|분석|현장|현재 안내서|기타 자료)[^\]]{0,6}\]\s*")  # 흔한 머리말만
 _BRACKET_RE = re.compile(r"\[([^\]]{1,20})\]")  # 나머지 [더존비즈온 사태] 등은 괄호만 벗김
 _ORG_RE = re.compile(r"^\s*[^\s,]{2,10},\s*")            # "개인정보위, " 같은 기관명
 _QUOTE_RE = re.compile(r"[‘’“”'\"]")
@@ -87,7 +87,7 @@ def build_message(target, sections: list[Section], failed) -> str:
     wd = digest.WEEKDAYS[target.weekday()]
     top = [f"🛡️ {target.month}/{target.day}({wd}) 보안 브리핑"]
     if failed:
-        top.append(f"⚠️수집 실패: {', '.join(failed)}")
+        top += [f"⚠️{line}" for line in digest.group_issues(failed)]
     if not any(s.items for s in sections):
         top.append("새 소식이 없습니다.")
 

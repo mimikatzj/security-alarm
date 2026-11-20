@@ -62,13 +62,22 @@ def _page(title: str, body: str) -> str:
     )
 
 
+def group_issues(issues: list[str]) -> list[str]:
+    """같은 종류의 경고를 한 줄로 묶기."""
+    groups: dict[str, list[str]] = {}
+    for x in issues:
+        kind, _, name = x.partition(": ")
+        groups.setdefault(kind, []).append(name)
+    return [f"{k}: {', '.join(v)}" for k, v in groups.items()]
+
+
 def build_html(target: date, sections, failed: list[str]) -> str:
     total = sum(len(s.items) for s in sections)
     pc = sum(s.priority_count for s in sections)
     out = [f"<h1>보안 브리핑 · {fmt_day(target)}</h1>",
            f"<p class='sub'>게시글 {total}건" + (f" · ❗우선 {pc}건" if pc else "") + "</p>"]
     if failed:
-        out.append(f"<p class='warn'>⚠️ 수집 실패: {escape(', '.join(failed))}</p>")
+        out.append("".join(f"<p class='warn'>⚠️ {escape(x)}</p>" for x in group_issues(failed)))
     for sec in sections:
         out.append(f"<h2>{escape(sec.label)} <small>{len(sec.items)}건</small></h2>")
         if not sec.items:
