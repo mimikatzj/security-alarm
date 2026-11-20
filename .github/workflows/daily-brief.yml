@@ -1,8 +1,12 @@
 name: daily-security-brief
 
 on:
+  # GitHub 스케줄은 정각에 몰려 지연·누락이 잦음 → 정각을 피하고 예비 실행 2번
+  # 예비 실행은 그날 이미 보냈으면(site/<전날>.html 존재) 바로 종료
   schedule:
-    - cron: "0 22 * * *"   # 매일 07:00 KST (UTC 22:00), 전날 게시글 대상. Actions 특성상 수~수십 분 지연될 수 있음
+    - cron: "43 21 * * *"   # 06:43 KST (본 실행)
+    - cron: "23 22 * * *"   # 07:23 KST (예비)
+    - cron: "13 23 * * *"   # 08:13 KST (예비)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,17 +29,35 @@ jobs:
   brief:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
     steps:
       - uses: actions/checkout@v5
 
+      # 스케줄 실행만: 오늘 이미 보냈으면 건너뜀 (수동 실행은 항상 진행)
+      # 대기열에 밀린 실행은 예전 커밋을 받을 수 있어 원격 최신 상태로 확인
+      - name: Check already sent
+        id: guard
+        if: github.event_name == 'schedule'
+        run: |
+          T=$(TZ=Asia/Seoul date -d yesterday +%F)
+          git fetch -q origin "$GITHUB_REF_NAME"
+          if git cat-file -e "origin/$GITHUB_REF_NAME:site/$T.html" 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$T 브리핑은 이미 발송됨 → 건너뜀"
+          fi
+
       - uses: actions/setup-python@v6
+        if: steps.guard.outputs.skip != 'true'
         with:
           python-version: "3.12"
           cache: pip
 
       - run: pip install -r requirements.txt
+        if: steps.guard.outputs.skip != 'true'
 
       - name: Collect & send
+        if: steps.guard.outputs.skip != 'true'
         env:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
@@ -50,7 +72,7 @@ jobs:
 
       # 카카오 refresh token 은 만료 1개월 전부터 갱신본이 발급됨 → Secret 자동 교체
       - name: Rotate Kakao refresh token
-        if: always()
+        if: always() && steps.guard.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
@@ -64,18 +86,19 @@ jobs:
           echo "KAKAO_REFRESH_TOKEN 갱신 완료"
 
       - name: Commit pages
-        if: success() && !inputs.dry_run
+        if: success() && !inputs.dry_run && steps.guard.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A site
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "brief: $(TZ=Asia/Seoul date +%F)"
+          git pull -q --rebase origin "$GITHUB_REF_NAME"
           git push
 
       # 카톡 '전체 목록 보기' 버튼이 여는 페이지 (https://<계정>.github.io/<저장소>/<날짜>.html)
       - name: Upload page
-        if: success() && !inputs.dry_run
+        if: success() && !inputs.dry_run && steps.guard.outputs.skip != 'true'
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
@@ -83,7 +106,7 @@ jobs:
   # 배포는 별도 작업 — 실패해도 'Re-run failed jobs' 로 배포만 다시 할 수 있음 (카톡 재발송 없음)
   deploy:
     needs: brief
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && needs.brief.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
